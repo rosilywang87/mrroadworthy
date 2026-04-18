@@ -108,6 +108,12 @@ select:disabled{opacity:.5;cursor:not-allowed}
 .suburb-btn:hover{border-color:var(--blue);color:var(--blue)}
 .suburb-btn.active{background:var(--blue);border-color:var(--blue);color:var(--white)}
 
+/* NEARBY SUBURB LABEL */
+.suburb-nearby-label{width:100%;font-family:'Montserrat',sans-serif;font-size:9.5px;font-weight:700;color:var(--gray-400);letter-spacing:.8px;text-transform:uppercase;margin-top:4px;padding-top:6px;border-top:1px dashed var(--gray-200)}
+.suburb-btn-near{border-style:dashed;color:var(--gray-400)}
+.suburb-btn-near:hover{border-color:var(--blue);color:var(--blue);border-style:solid}
+.suburb-btn-near.active{background:var(--blue);border-color:var(--blue);color:var(--white);border-style:solid}
+
 /* VEHICLE BUTTONS */
 .veh-btn-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
 .veh-btn-grid.locked{pointer-events:none;opacity:.45}
@@ -116,8 +122,8 @@ select:disabled{opacity:.5;cursor:not-allowed}
 .veh-btn.active{background:var(--blue);border-color:var(--blue);color:var(--white)}
 
 /* REGION DIVIDER */
-.region-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin:6px 0;color:var(--gray-400);font-size:11px;font-family:'Montserrat',sans-serif;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
-.region-divider::before,.region-divider::after{content:'';flex:1;height:1px;background:var(--gray-200)}
+.region-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin:6px 0;color:var(--gray-600);font-size:11px;font-family:'Montserrat',sans-serif;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
+.region-divider::before,.region-divider::after{content:'';flex:1;height:2px;background:var(--gray-400)}
 
 /* OUT-OF-REGION CARDS */
 .card.out-region .card-header{background:var(--blue-pale);border-bottom-color:var(--blue-light)}
@@ -146,16 +152,16 @@ select:disabled{opacity:.5;cursor:not-allowed}
       <div class="panel-hdr">Find an Inspector</div>
       <div class="panel-body">
 
-        <!-- Step 1: Postcode -->
+        <!-- Step 1: Postcode or Suburb -->
         <div class="field">
-          <label>Customer Postcode</label>
-          <input type="text" id="postcode-input" placeholder="e.g. 4215" maxlength="4" inputmode="numeric">
-          <div class="field-hint" id="postcode-hint"></div>
+          <label>Postcode or Suburb</label>
+          <input type="text" id="postcode-input" placeholder="e.g. 4227 or Varsity Lakes" autocomplete="off">
+          <div class="field-hint" id="postcode-hint">Enter a postcode or type a suburb name</div>
         </div>
 
-        <!-- Step 2: Suburb (conditional) -->
+        <!-- Step 2: Location picker (conditional) -->
         <div class="field hidden" id="suburb-field">
-          <label>Select Suburb</label>
+          <label>Select Location</label>
           <div class="suburb-btn-row" id="suburb-btn-row"></div>
         </div>
         <div class="hidden" id="suburb-single">
@@ -238,7 +244,7 @@ const PROXIES = [
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const S = {
   inspectors: [], prices: {}, services: {},
-  subsByPostcode: {}, subCoords: {}, subRegionLookup: {},
+  subsByPostcode: {}, subCoords: {}, subRegionLookup: {}, allSuburbs: [],
   loaded: false,
   suburb: null, subRegion: null,
   subLat: null, subLng: null,
@@ -307,7 +313,7 @@ async function loadAll() {
     S.services[name] = obj;
   });
 
-  // Suburbs — index by postcode and build coord lookup
+  // Suburbs — index by postcode, build coord lookup, and flat list for name search
   toObjects(parseCSV(subT)).forEach(r => {
     const pc = r.Postcode?.toString().trim();
     if (!pc) return;
@@ -316,6 +322,7 @@ async function loadAll() {
     if (r.Suburb) {
       S.subCoords[r.Suburb.toLowerCase().trim()] = {lat:parseFloat(r.Lat), lng:parseFloat(r.Lng)};
       S.subRegionLookup[r.Suburb.toLowerCase().trim()] = r.Region || '';
+      S.allSuburbs.push(r);
     }
   });
 
@@ -453,6 +460,47 @@ function makeCard(insp, price, i, outRegion=false) {
   return card;
 }
 
+// ── SUBURB HELPERS ────────────────────────────────────────────────────────────
+function nearbySuburbs(lat, lng, excludeSet, limit=8) {
+  return S.allSuburbs
+    .filter(s => !excludeSet.has(s.Suburb))
+    .map(s => ({...s, km: dist(lat, lng, parseFloat(s.Lat), parseFloat(s.Lng))}))
+    .sort((a, b) => a.km - b.km)
+    .slice(0, limit);
+}
+
+function renderSuburbBtns(exact, nearby, autoSelect) {
+  const row = document.getElementById('suburb-btn-row');
+  const subField = document.getElementById('suburb-field');
+  document.getElementById('suburb-single').classList.add('hidden');
+
+  let html = exact.map(m =>
+    `<button class="suburb-btn" data-suburb="${esc(m.Suburb)}">${esc(m.Suburb)}</button>`
+  ).join('');
+
+  if (nearby.length) {
+    html += `<div class="suburb-nearby-label">Nearby suburbs</div>`;
+    html += nearby.map(m =>
+      `<button class="suburb-btn suburb-btn-near" data-suburb="${esc(m.Suburb)}" title="${esc(m.Suburb + ', ' + m.Region + ' — ' + m.km.toFixed(1) + ' km away')}">${esc(m.Suburb)}</button>`
+    ).join('');
+  }
+
+  row.innerHTML = html;
+  row.querySelectorAll('.suburb-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      row.querySelectorAll('.suburb-btn').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      setSuburb(this.dataset.suburb);
+    });
+  });
+  subField.classList.remove('hidden');
+
+  if (autoSelect) {
+    const first = row.querySelector('.suburb-btn');
+    if (first) { first.classList.add('active'); setSuburb(autoSelect); }
+  }
+}
+
 // ── UI EVENT HANDLERS ─────────────────────────────────────────────────────────
 function setSuburb(name) {
   S.suburb = name;
@@ -464,47 +512,54 @@ function setSuburb(name) {
   if (S.vehicleBase) search();
 }
 
-// Postcode input
+// Postcode / Suburb search input
 document.getElementById('postcode-input').addEventListener('input', function() {
-  const pc = this.value.trim();
+  const val = this.value.trim();
   const hint = document.getElementById('postcode-hint');
   const subField = document.getElementById('suburb-field');
   const subSingle = document.getElementById('suburb-single');
 
-  // Reset
+  // Reset location + vehicle state
   subField.classList.add('hidden'); subSingle.classList.add('hidden');
   document.getElementById('veh-btn-grid').classList.add('locked');
   document.querySelectorAll('.veh-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('cert-field').classList.add('hidden');
   S.suburb = null; S.subRegion = null; S.vehicleBase = null; S.hasCert = false;
 
-  if (pc.length === 4 && /^\d{4}$/.test(pc)) {
-    if (!S.loaded) { hint.textContent = 'Still loading…'; return; }
-    const matches = S.subsByPostcode[pc] || [];
-    if (!matches.length) { hint.textContent = '⚠ Postcode not found in SEQ database'; return; }
-    hint.textContent = '';
-    if (matches.length === 1) {
-      document.getElementById('suburb-single-name').textContent = matches[0].Suburb + ', ' + matches[0].Region;
-      subSingle.classList.remove('hidden');
-      setSuburb(matches[0].Suburb);
-    } else {
-      const row = document.getElementById('suburb-btn-row');
-      row.innerHTML = matches.map(m =>
-        `<button class="suburb-btn" data-suburb="${esc(m.Suburb)}">${esc(m.Suburb)}</button>`
-      ).join('');
-      row.querySelectorAll('.suburb-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-          row.querySelectorAll('.suburb-btn').forEach(b => b.classList.remove('active'));
-          this.classList.add('active');
-          setSuburb(this.dataset.suburb);
-        });
-      });
-      subField.classList.remove('hidden');
-    }
-  } else {
-    hint.textContent = '';
-    document.getElementById('cards-grid').innerHTML = `<div class="state-box"><span class="state-icon">🔍</span><h3>Ready to search</h3><p>Enter a 4-digit SEQ postcode to begin</p></div>`;
+  if (!val) {
+    hint.textContent = 'Enter a postcode or type a suburb name';
+    document.getElementById('cards-grid').innerHTML = `<div class="state-box"><span class="state-icon">🔍</span><h3>Ready to search</h3><p>Enter a postcode (e.g. 4227) or start typing a suburb name (e.g. Varsity Lakes)</p></div>`;
     document.getElementById('count-badge').classList.add('hidden');
+    return;
+  }
+
+  if (!S.loaded) { hint.textContent = 'Still loading data…'; return; }
+
+  // ── POSTCODE MODE (exactly 4 digits) ──
+  if (/^\d{4}$/.test(val)) {
+    const exact = S.subsByPostcode[val] || [];
+    if (!exact.length) { hint.textContent = '⚠ Postcode not found in SEQ database'; return; }
+    hint.textContent = '';
+    const centLat = exact.reduce((s, m) => s + parseFloat(m.Lat), 0) / exact.length;
+    const centLng = exact.reduce((s, m) => s + parseFloat(m.Lng), 0) / exact.length;
+    const exactNames = new Set(exact.map(m => m.Suburb));
+    const nearby = nearbySuburbs(centLat, centLng, exactNames, 8);
+    const autoSelect = exact.length === 1 ? exact[0].Suburb : null;
+    renderSuburbBtns(exact, nearby, autoSelect);
+
+  // ── SUBURB NAME MODE (≥2 chars, contains a letter) ──
+  } else if (val.length >= 2 && /[a-zA-Z]/.test(val)) {
+    const q = val.toLowerCase();
+    const startsWith = S.allSuburbs.filter(s => s.Suburb.toLowerCase().startsWith(q));
+    const contains   = S.allSuburbs.filter(s => !s.Suburb.toLowerCase().startsWith(q) && s.Suburb.toLowerCase().includes(q));
+    const matches = [...startsWith, ...contains].slice(0, 12);
+    if (!matches.length) { hint.textContent = '⚠ No suburbs found'; return; }
+    hint.textContent = '';
+    renderSuburbBtns(matches, [], null);
+
+  // ── PARTIAL INPUT ──
+  } else {
+    hint.textContent = /^\d+$/.test(val) ? 'Keep typing — enter full 4-digit postcode' : '';
   }
 });
 
