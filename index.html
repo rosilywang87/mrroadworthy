@@ -102,6 +102,29 @@ select:disabled{opacity:.5;cursor:not-allowed}
 .state-box p{font-size:14px;line-height:1.6;max-width:320px;margin:0 auto}
 .big-spinner{width:34px;height:34px;border:3px solid var(--gray-200);border-top-color:var(--blue);border-radius:50%;animation:spin .65s linear infinite;margin:0 auto 14px}
 
+/* SUBURB BUTTONS */
+.suburb-btn-row{display:flex;flex-wrap:wrap;gap:6px}
+.suburb-btn{padding:7px 13px;border:1.5px solid var(--gray-200);border-radius:20px;background:var(--white);font-family:'Montserrat',sans-serif;font-size:12px;font-weight:700;color:var(--gray-600);cursor:pointer;transition:all .13s;letter-spacing:.3px}
+.suburb-btn:hover{border-color:var(--blue);color:var(--blue)}
+.suburb-btn.active{background:var(--blue);border-color:var(--blue);color:var(--white)}
+
+/* VEHICLE BUTTONS */
+.veh-btn-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.veh-btn-grid.locked{pointer-events:none;opacity:.45}
+.veh-btn{padding:8px 6px;border:1.5px solid var(--gray-200);border-radius:var(--radius-sm);background:var(--white);font-family:'Montserrat',sans-serif;font-size:10.5px;font-weight:700;color:var(--gray-600);cursor:pointer;text-align:center;transition:all .13s;letter-spacing:.3px;text-transform:uppercase;line-height:1.3}
+.veh-btn:hover{border-color:var(--blue);color:var(--blue)}
+.veh-btn.active{background:var(--blue);border-color:var(--blue);color:var(--white)}
+
+/* REGION DIVIDER */
+.region-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin:6px 0;color:var(--gray-400);font-size:11px;font-family:'Montserrat',sans-serif;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
+.region-divider::before,.region-divider::after{content:'';flex:1;height:1px;background:var(--gray-200)}
+
+/* OUT-OF-REGION CARDS */
+.card.out-region .card-header{background:var(--blue-pale);border-bottom-color:var(--blue-light)}
+.card.out-region .insp-name{color:var(--blue-dark)}
+.card.out-region .insp-loc{color:var(--blue)}
+.card.out-region .insp-dist{background:rgba(7,151,211,.12);color:var(--blue-dark)}
+
 /* HIDDEN */
 .hidden{display:none!important}
 </style>
@@ -133,7 +156,7 @@ select:disabled{opacity:.5;cursor:not-allowed}
         <!-- Step 2: Suburb (conditional) -->
         <div class="field hidden" id="suburb-field">
           <label>Select Suburb</label>
-          <select id="suburb-select"><option value="">— select suburb —</option></select>
+          <div class="suburb-btn-row" id="suburb-btn-row"></div>
         </div>
         <div class="hidden" id="suburb-single">
           <label>Location</label>
@@ -143,21 +166,20 @@ select:disabled{opacity:.5;cursor:not-allowed}
         <!-- Step 3: Vehicle / Service Type -->
         <div class="field">
           <label>Vehicle / Service Type</label>
-          <select id="vehicle-select" disabled>
-            <option value="">— select type —</option>
-            <option value="vehicles_rwc|false">Vehicles (Car / 4WD)</option>
-            <option value="truck|false">Truck</option>
-            <option value="caravan|true">Caravan</option>
-            <option value="camper|true">Camper Trailer</option>
-            <option value="motorhome|true">Motorhome</option>
-            <option value="trailer|false">Trailer</option>
-            <option value="uber|false">Uber</option>
-            <option value="prepurchase|false">Pre Purchase Inspection</option>
-            <option value="hvras|false">HVRAS</option>
-            <option value="motorbike|false">Motorbike</option>
-            <option value="gas_only|false">Gas Only</option>
-            <option value="sign_off|false">Sign Off</option>
-          </select>
+          <div class="veh-btn-grid locked" id="veh-btn-grid">
+            <button class="veh-btn" data-base="vehicles_rwc" data-cert="false">Car / 4WD</button>
+            <button class="veh-btn" data-base="truck" data-cert="false">Truck</button>
+            <button class="veh-btn" data-base="caravan" data-cert="true">Caravan</button>
+            <button class="veh-btn" data-base="camper" data-cert="true">Camper Trailer</button>
+            <button class="veh-btn" data-base="motorhome" data-cert="true">Motorhome</button>
+            <button class="veh-btn" data-base="trailer" data-cert="false">Trailer</button>
+            <button class="veh-btn" data-base="uber" data-cert="false">Uber</button>
+            <button class="veh-btn" data-base="prepurchase" data-cert="false">Pre-Purchase</button>
+            <button class="veh-btn" data-base="hvras" data-cert="false">HVRAS</button>
+            <button class="veh-btn" data-base="motorbike" data-cert="false">Motorbike</button>
+            <button class="veh-btn" data-base="gas_only" data-cert="false">Gas Only</button>
+            <button class="veh-btn" data-base="sign_off" data-cert="false">Sign Off</button>
+          </div>
         </div>
 
         <!-- Step 4: Certificate (conditional) -->
@@ -216,9 +238,9 @@ const PROXIES = [
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const S = {
   inspectors: [], prices: {}, services: {},
-  subsByPostcode: {}, subCoords: {},
+  subsByPostcode: {}, subCoords: {}, subRegionLookup: {},
   loaded: false,
-  suburb: null,   // selected suburb name string
+  suburb: null, subRegion: null,
   subLat: null, subLng: null,
   vehicleBase: null, hasCert: false, cert: 'Safety',
 };
@@ -291,7 +313,10 @@ async function loadAll() {
     if (!pc) return;
     if (!S.subsByPostcode[pc]) S.subsByPostcode[pc] = [];
     S.subsByPostcode[pc].push(r);
-    if (r.Suburb) S.subCoords[r.Suburb.toLowerCase().trim()] = {lat:parseFloat(r.Lat), lng:parseFloat(r.Lng)};
+    if (r.Suburb) {
+      S.subCoords[r.Suburb.toLowerCase().trim()] = {lat:parseFloat(r.Lat), lng:parseFloat(r.Lng)};
+      S.subRegionLookup[r.Suburb.toLowerCase().trim()] = r.Region || '';
+    }
   });
 
   S.loaded = true;
@@ -332,7 +357,7 @@ function search() {
   const coords = S.subCoords[S.suburb.toLowerCase()];
   if (!coords) return;
 
-  const results = S.inspectors
+  const sorted = S.inspectors
     .filter(i => canDo(i.Inspector))
     .map(i => {
       const c2 = S.subCoords[(i.Base_Suburb||'').toLowerCase().trim()];
@@ -344,17 +369,21 @@ function search() {
       return a.km-b.km;
     });
 
-  renderCards(results);
+  const sameRegion  = sorted.filter(i => (i.Region||'') === S.subRegion);
+  const otherRegion = sorted.filter(i => (i.Region||'') !== S.subRegion);
+  renderCards(sameRegion, otherRegion);
 }
 
-function renderCards(results) {
+function renderCards(sameRegion, otherRegion) {
+  const results = [...sameRegion, ...otherRegion];
   const grid = document.getElementById('cards-grid');
   const badge = document.getElementById('count-badge');
   const sKey = serviceKey();
   const price = sKey ? S.prices[sKey] : null;
 
   // Update header
-  const vLabel = document.querySelector(`#vehicle-select option[value="${S.vehicleBase}|${S.hasCert}"]`)?.textContent || '';
+  const activeBtn = document.querySelector('.veh-btn.active');
+  const vLabel = activeBtn ? activeBtn.textContent : '';
   document.getElementById('results-title').textContent = vLabel + ' Inspectors';
   document.getElementById('results-sub').textContent =
     `Near ${S.suburb}${S.hasCert?' · '+S.cert+' certificate':''}`;
@@ -368,12 +397,22 @@ function renderCards(results) {
   badge.classList.remove('hidden');
 
   grid.innerHTML = '';
-  results.forEach((insp, i) => grid.appendChild(makeCard(insp, price, i)));
+  let idx = 0;
+  sameRegion.forEach(insp => grid.appendChild(makeCard(insp, price, idx++, false)));
+
+  if (sameRegion.length && otherRegion.length) {
+    const div = document.createElement('div');
+    div.className = 'region-divider';
+    div.textContent = 'Other regions';
+    grid.appendChild(div);
+  }
+
+  otherRegion.forEach(insp => grid.appendChild(makeCard(insp, price, idx++, true)));
 }
 
-function makeCard(insp, price, i) {
+function makeCard(insp, price, i, outRegion=false) {
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = 'card' + (outRegion ? ' out-region' : '');
   card.style.animationDelay = `${i*55}ms`;
 
   const distStr = insp.km!=null ? `${insp.km.toFixed(1)} km away` : '';
@@ -397,8 +436,9 @@ function makeCard(insp, price, i) {
   html += `<div class="card-pricing">`;
   if (price) {
     const certPart = price.Cert_Type && price.Cert_Type!=='-' ? ` · ${price.Cert_Type}` : '';
+    const priceVal = String(price['Base_Price ($)']||'').replace(/^\$\s*/,'');
     html += `<div class="svc-tag">${esc(price.Vehicle_Type)}${esc(certPart)}</div>
-      <div class="price-main">$${esc(price['Base_Price ($)'])}<span class="price-cents"> inc. GST</span></div>`;
+      <div class="price-main">$${esc(priceVal)}<span class="price-cents"> inc. GST</span></div>`;
     const notes = price.Price_Notes?.trim();
     if (notes) {
       const lines = notes.split(';').map(l=>l.trim()).filter(Boolean);
@@ -416,9 +456,11 @@ function makeCard(insp, price, i) {
 // ── UI EVENT HANDLERS ─────────────────────────────────────────────────────────
 function setSuburb(name) {
   S.suburb = name;
-  const coords = S.subCoords[name.toLowerCase()];
+  const key = name.toLowerCase();
+  const coords = S.subCoords[key];
   S.subLat = coords?.lat; S.subLng = coords?.lng;
-  document.getElementById('vehicle-select').disabled = false;
+  S.subRegion = S.subRegionLookup[key] || '';
+  document.getElementById('veh-btn-grid').classList.remove('locked');
   if (S.vehicleBase) search();
 }
 
@@ -428,12 +470,13 @@ document.getElementById('postcode-input').addEventListener('input', function() {
   const hint = document.getElementById('postcode-hint');
   const subField = document.getElementById('suburb-field');
   const subSingle = document.getElementById('suburb-single');
-  const subSel = document.getElementById('suburb-select');
-  const vSel = document.getElementById('vehicle-select');
 
   // Reset
   subField.classList.add('hidden'); subSingle.classList.add('hidden');
-  vSel.disabled = true; S.suburb = null;
+  document.getElementById('veh-btn-grid').classList.add('locked');
+  document.querySelectorAll('.veh-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('cert-field').classList.add('hidden');
+  S.suburb = null; S.subRegion = null; S.vehicleBase = null; S.hasCert = false;
 
   if (pc.length === 4 && /^\d{4}$/.test(pc)) {
     if (!S.loaded) { hint.textContent = 'Still loading…'; return; }
@@ -445,8 +488,17 @@ document.getElementById('postcode-input').addEventListener('input', function() {
       subSingle.classList.remove('hidden');
       setSuburb(matches[0].Suburb);
     } else {
-      subSel.innerHTML = '<option value="">— select suburb —</option>' +
-        matches.map(m=>`<option value="${esc(m.Suburb)}">${esc(m.Suburb)}</option>`).join('');
+      const row = document.getElementById('suburb-btn-row');
+      row.innerHTML = matches.map(m =>
+        `<button class="suburb-btn" data-suburb="${esc(m.Suburb)}">${esc(m.Suburb)}</button>`
+      ).join('');
+      row.querySelectorAll('.suburb-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          row.querySelectorAll('.suburb-btn').forEach(b => b.classList.remove('active'));
+          this.classList.add('active');
+          setSuburb(this.dataset.suburb);
+        });
+      });
       subField.classList.remove('hidden');
     }
   } else {
@@ -456,19 +508,17 @@ document.getElementById('postcode-input').addEventListener('input', function() {
   }
 });
 
-// Suburb select
-document.getElementById('suburb-select').addEventListener('change', function() {
-  if (this.value) setSuburb(this.value);
-});
-
-// Vehicle select
-document.getElementById('vehicle-select').addEventListener('change', function() {
-  const certField = document.getElementById('cert-field');
-  if (!this.value) { S.vehicleBase=null; certField.classList.add('hidden'); return; }
-  const [base, hasCert] = this.value.split('|');
-  S.vehicleBase = base; S.hasCert = hasCert==='true';
-  certField.classList.toggle('hidden', !S.hasCert);
-  search();
+// Vehicle buttons
+document.querySelectorAll('.veh-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.veh-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    const certField = document.getElementById('cert-field');
+    S.vehicleBase = this.dataset.base;
+    S.hasCert = this.dataset.cert === 'true';
+    certField.classList.toggle('hidden', !S.hasCert);
+    search();
+  });
 });
 
 // Cert buttons
