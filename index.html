@@ -540,19 +540,19 @@ document.getElementById('postcode-input').addEventListener('input', function() {
   document.getElementById('cert-field').classList.add('hidden');
   S.suburb = null; S.subRegion = null; S.vehicleBase = null; S.hasCert = false;
 
-  if (\!val) {
+  if (!val) {
     hint.textContent = 'Enter a postcode or type a suburb name';
     document.getElementById('cards-grid').innerHTML = `<div class="state-box"><span class="state-icon">🔍</span><h3>Ready to search</h3><p>Enter a postcode (e.g. 4227) or start typing a suburb name (e.g. Varsity Lakes)</p></div>`;
     document.getElementById('count-badge').classList.add('hidden');
     return;
   }
 
-  if (\!S.loaded) { hint.textContent = 'Still loading data…'; return; }
+  if (!S.loaded) { hint.textContent = 'Still loading data…'; return; }
 
   // ── POSTCODE MODE (exactly 4 digits) ──
   if (/^\d{4}$/.test(val)) {
     const exact = S.subsByPostcode[val] || [];
-    if (\!exact.length) { hint.textContent = '⚠ Postcode not found in SEQ database'; return; }
+    if (!exact.length) { hint.textContent = '⚠ Postcode not found in SEQ database'; return; }
     hint.textContent = '';
     const centLat = exact.reduce((s, m) => s + parseFloat(m.Lat), 0) / exact.length;
     const centLng = exact.reduce((s, m) => s + parseFloat(m.Lng), 0) / exact.length;
@@ -565,9 +565,9 @@ document.getElementById('postcode-input').addEventListener('input', function() {
   } else if (val.length >= 2 && /[a-zA-Z]/.test(val)) {
     const q = val.toLowerCase();
     const startsWith = S.allSuburbs.filter(s => s.Suburb.toLowerCase().startsWith(q));
-    const contains   = S.allSuburbs.filter(s => \!s.Suburb.toLowerCase().startsWith(q) && s.Suburb.toLowerCase().includes(q));
+    const contains   = S.allSuburbs.filter(s => !s.Suburb.toLowerCase().startsWith(q) && s.Suburb.toLowerCase().includes(q));
     const matches = [...startsWith, ...contains].slice(0, 12);
-    if (\!matches.length) { hint.textContent = '⚠ No suburbs found'; return; }
+    if (!matches.length) { hint.textContent = '⚠ No suburbs found'; return; }
     hint.textContent = '';
     renderSuburbBtns(matches, [], null);
 
@@ -590,7 +590,7 @@ function buildVehicleButtons() {
       const certField = document.getElementById('cert-field');
       S.vehicleBase = this.dataset.base;
       S.hasCert = this.dataset.cert === 'true';
-      certField.classList.toggle('hidden', \!S.hasCert);
+      certField.classList.toggle('hidden', !S.hasCert);
       search();
     });
   });
